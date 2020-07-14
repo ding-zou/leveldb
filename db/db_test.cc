@@ -4,24 +4,26 @@
 
 #include "leveldb/db.h"
 
-#include <atomic>
-#include <string>
-
-#include "gtest/gtest.h"
 #include "db/db_impl.h"
 #include "db/filename.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
+#include <atomic>
+#include <string>
+
 #include "leveldb/cache.h"
 #include "leveldb/env.h"
 #include "leveldb/filter_policy.h"
 #include "leveldb/table.h"
+
 #include "port/port.h"
 #include "port/thread_annotations.h"
 #include "util/hash.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
 #include "util/testutil.h"
+
+#include "gtest/gtest.h"
 
 namespace leveldb {
 
@@ -316,6 +318,30 @@ class DBTest : public testing::Test {
 
   Status Put(const std::string& k, const std::string& v) {
     return db_->Put(WriteOptions(), k, v);
+  }
+
+  Status SelectSql(const std::map<std::string, std::string>& con,
+                   std::vector<std::string>* v) {
+    std::map<std::string, Slice> condition({});
+    for (auto&& m_element : con) {
+      for (auto&& vec_element : m_element.second) {
+        condition[m_element.first] = Slice(m_element.second);
+      }
+    }
+    return db_->SelectSql(ReadOptions(), condition, v);
+  }
+
+  Status InsertSql(const std::vector<std::string>& k,
+                   const std::vector<std::string>& v) {
+    std::vector<Slice> keys({});
+    for (int i = 0; i < k.size(); ++i) {
+      keys.push_back(Slice(k[i]));
+    }
+    std::vector<Slice> values({});
+    for (int i = 0; i < v.size(); ++i) {
+      values.push_back(Slice(v[i]));
+    }
+    return db_->InsertSql(WriteOptions(), keys, values);
   }
 
   Status Delete(const std::string& k) { return db_->Delete(WriteOptions(), k); }
@@ -718,6 +744,31 @@ TEST_F(DBTest, GetOrderedByLevels) {
     dbfull()->TEST_CompactMemTable();
     ASSERT_EQ("v2", Get("foo"));
   } while (ChangeOptions());
+}
+
+TEST_F(DBTest, SelectInsertTest) {
+  // insert
+  Status cs = db_->CreateIndex(IndexType::Primary_Index, "id");
+  assert(cs.ok());
+  std::vector<std::string> key({});
+  key.push_back("id");
+  key.push_back("name");
+  key.push_back("tel");
+  std::vector<std::string> value({});
+  value.push_back("1");
+  value.push_back("dx");
+  value.push_back("2123");
+  Status s = InsertSql(key,value);
+  assert(s.ok());
+  // select
+  std::map<std::string,std::string> con({});
+  con["id"] = "1";
+  std::vector<std::string> finalV;
+  Status s2 = SelectSql(con,&finalV);
+  assert(s2.ok());
+  for (auto i : finalV) {
+    std::cout << i << " ";
+  }
 }
 
 TEST_F(DBTest, GetPicksCorrectFile) {
@@ -2041,6 +2092,26 @@ class ModelDB : public DB {
              std::string* value) override {
     assert(false);  // Not implemented
     return Status::NotFound(key);
+  }
+  Status CreateIndex(IndexType type, const std::string &rowName) override {
+    assert(false);
+    return Status::OK();
+  }
+  Status SelectSql(const ReadOptions &options, const std::map<std::string, Slice> &conditions, std::vector<std::string> *values) override {
+    assert(false);  // Not implemented
+    return Status::OK();
+  }
+  Status InsertSql(const WriteOptions &o, const std::vector<Slice> &keys, const std::vector<Slice> &values) override {
+    assert(false);
+    return Status::OK();
+  }
+  Status UpdateSql(const std::vector<Slice> &keys, const std::vector<Slice> &values) override {
+    assert(false);
+    return Status::OK();
+  }
+  Status DeleteSql(const std::vector<Slice> &keys) override {
+    assert(false);
+    return Status::OK();
   }
   Iterator* NewIterator(const ReadOptions& options) override {
     if (options.snapshot == nullptr) {

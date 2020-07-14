@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <map>
 
 #include "leveldb/export.h"
 #include "leveldb/iterator.h"
@@ -31,6 +32,7 @@ class LEVELDB_EXPORT Snapshot {
   virtual ~Snapshot();
 };
 
+enum class IndexType { Primary_Index, Second_Index };
 // A range of keys
 struct LEVELDB_EXPORT Range {
   Range() = default;
@@ -91,18 +93,22 @@ class LEVELDB_EXPORT DB {
    * @param rowName
    * @return
    */
-  //create index，generate index_id，call this method before put data in db
+  // create index，generate index_id，call this method before put data in db
 
-  enum class IndexType {
-    Primary_Index,Second_Index
-  };
-  //todo 索引映射 字段映射
+  // todo 索引映射 字段映射
+  virtual Status CreateTable(const std::string* tableName,
+                             const std::vector<std::string>& columns,
+                             const std::string& primaryKeyInColumn) = 0;
   virtual Status CreateIndex(IndexType type, const std::string& rowName) = 0;
-  virtual Status SelectSql(const std::vector<Slice>& keys, const std::vector<Slice>* values) = 0;
-  virtual Status InsertSql(const std::vector<Slice>& keys, const std::vector<Slice>& values) = 0;
-  virtual Status UpdateSql(const std::vector<Slice>& keys, const std::vector<Slice>& values) = 0;
+  virtual Status SelectSql(const ReadOptions& options,
+                           const std::map<std::string, Slice>& conditions,
+                           std::vector<std::string>* values) = 0;
+  virtual Status InsertSql(const WriteOptions& o,
+                           const std::vector<Slice>& keys,
+                           const std::vector<Slice>& values) = 0;
+  virtual Status UpdateSql(const std::vector<Slice>& keys,
+                           const std::vector<Slice>& values) = 0;
   virtual Status DeleteSql(const std::vector<Slice>& keys) = 0;
-
 
   /**
    * my leveldb end

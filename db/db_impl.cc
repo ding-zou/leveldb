@@ -4,14 +4,6 @@
 
 #include "db/db_impl.h"
 
-#include <algorithm>
-#include <atomic>
-#include <cstdint>
-#include <cstdio>
-#include <set>
-#include <string>
-#include <vector>
-
 #include "db/builder.h"
 #include "db/db_iter.h"
 #include "db/dbformat.h"
@@ -22,11 +14,20 @@
 #include "db/table_cache.h"
 #include "db/version_set.h"
 #include "db/write_batch_internal.h"
+#include <algorithm>
+#include <atomic>
+#include <cstdint>
+#include <cstdio>
+#include <set>
+#include <string>
+#include <vector>
+
 #include "leveldb/db.h"
 #include "leveldb/env.h"
 #include "leveldb/status.h"
 #include "leveldb/table.h"
 #include "leveldb/table_builder.h"
+
 #include "port/port.h"
 #include "table/block.h"
 #include "table/merger.h"
@@ -34,6 +35,8 @@
 #include "util/coding.h"
 #include "util/logging.h"
 #include "util/mutexlock.h"
+
+#include "sstream"
 
 namespace leveldb {
 
@@ -148,7 +151,7 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
       manual_compaction_(nullptr),
       versions_(new VersionSet(dbname_, &options_, table_cache_,
                                &internal_comparator_)),
-      index_dict_(new IndexDict()){}
+      index_dict_(new IndexDict()) {}
 
 DBImpl::~DBImpl() {
   // Wait for background work to finish.
@@ -697,7 +700,7 @@ void DBImpl::BackgroundCall() {
   background_work_finished_signal_.SignalAll();
 }
 
-//TODO 合并逻辑
+// TODO 合并逻辑
 void DBImpl::BackgroundCompaction() {
   mutex_.AssertHeld();
 
@@ -1164,25 +1167,93 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
  * @param rowName
  * @return
  */
+
+#define IndexPath "index"
+Status DBImpl::CreateTable(const std::string* tableName,
+                           const std::vector<std::string>& columns,
+                           const std::string& primaryKeyInColumn) {
+  if (!tableName) {
+    //todo 根据indexath/tableName 创建路径
+  } else {
+//    throw;
+  }
+  //元数据暂时存在内存 todo 存到column family
+}
+
 Status DBImpl::CreateIndex(IndexType type, const std::string& rowName) {
   MutexLock l(&mutex_);
-  if(type == IndexType::Primary_Index) {
+  if (type == IndexType::Primary_Index) {
     index_dict_->AddIndex(rowName, index_dict_->last_index_);
     index_dict_->last_index_ += 1;
   }
   return Status::OK();
 }
-Status DBImpl::SelectSql(const std::vector<Slice>& keys, const std::vector<Slice>* values) {
 
-  return Status::OK();
-}
-Status DBImpl::InsertSql(const std::vector<Slice>& keys, const std::vector<Slice>& values) {
+#define Get_Bit(x,y)   ((x) >> (y)&1)
+Status DBImpl::SelectSql(const ReadOptions& options,
+                         const std::map<std::string, Slice>& conditions,
+                         std::vector<std::string>* values) {
+  MutexLock l(&mutex_);
+  const uint32_t index = index_dict_->index_array_.find("id")->second;
+  std::string ik = std::to_string(index);
+  const char* primaryKey = conditions.find("id")->second.data();
+  const std::string pk(primaryKey, primaryKey + strlen(primaryKey));
+  Slice finalIndexKey(ik.append(pk));
+  std::string value;
+  mutex_.Unlock();
+  Status s = Get(options, finalIndexKey, &value);
+  //split
+  values->clear();
+  std::istringstream iss(value);
+  std::string temp;
+  while (std::getline(iss, temp, ',')) {
+    values->push_back(std::move(temp));
+  }
+  //get nullBitmap
+  size_t nullBitmap = std::stoi(&value[0]);
 
+  return s;
+}
+
+#define Set_Bit(x,n)  x|=(1<<n)
+Status DBImpl::InsertSql(const WriteOptions& o, const std::vector<Slice>& keys,
+                         const std::vector<Slice>& values) {
+  MutexLock l(&mutex_);
+  WriteBatch batch;
+  //拿到对应index_id
+  uint32_t index = index_dict_->index_array_.find("id")->second;
+  const std::string ik = std::to_string(index);
+  //拿到主键的值
+  const char* primaryKey = values[0].data();
+  const std::string pk(primaryKey, primaryKey + strlen(primaryKey));
+  Slice finalIndexKey(ik + pk);
+  std::string finalValueStr;
+  //获取nullBitmap
+  size_t nullBitmap = 0;
+  for (int i = 0; i < keys.size(); ++i) {
+    if (keys[i] != nullptr) {
+      continue;
+    }
+    Set_Bit(nullBitmap, i);
+  }
+  //todo 把nullBitmap变长到低字节 1-5 varint
+  finalValueStr.append(std::to_string(nullBitmap)).append(",");
+  //value
+  for (int i = 0; i < values.size(); ++i) {
+    const char* vd = values[i].data();
+    finalValueStr.append(std::string(vd, vd + strlen(vd))).append(",");
+  }
+  Slice finalIndexValue(finalValueStr);
+  batch.Put(finalIndexKey, finalIndexValue);
+  mutex_.Unlock();
+  return Write(o, &batch);
+}
+
+Status DBImpl::UpdateSql(const std::vector<Slice>& keys,
+                         const std::vector<Slice>& values) {
   return Status::OK();
 }
-Status DBImpl::UpdateSql(const std::vector<Slice>& keys, const std::vector<Slice>& values) {
-  return Status::OK();
-}
+
 Status DBImpl::DeleteSql(const std::vector<Slice>& keys) {
   return Status::OK();
 }
@@ -1231,7 +1302,7 @@ Status DBImpl::Delete(const WriteOptions& options, const Slice& key) {
 }
 
 Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
-  //writer就理解为单词操作task
+  // writer就理解为单词操作task
   Writer w(&mutex_);
   w.batch = updates;
   w.sync = options.sync;

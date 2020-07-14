@@ -5,16 +5,17 @@
 #ifndef STORAGE_LEVELDB_DB_DB_IMPL_H_
 #define STORAGE_LEVELDB_DB_DB_IMPL_H_
 
+#include "db/dbformat.h"
+#include "db/log_writer.h"
+#include "db/snapshot.h"
 #include <atomic>
 #include <deque>
 #include <set>
 #include <string>
 
-#include "db/dbformat.h"
-#include "db/log_writer.h"
-#include "db/snapshot.h"
 #include "leveldb/db.h"
 #include "leveldb/env.h"
+
 #include "port/port.h"
 #include "port/thread_annotations.h"
 
@@ -46,10 +47,17 @@ class DBImpl : public DB {
    * my leveldb start
    * @return
    */
+  Status CreateTable(const std::string* tableName,
+                             const std::vector<std::string>& columns,
+                             const std::string& primaryKeyInColumn) override;
   Status CreateIndex(IndexType type, const std::string& rowName) override;
-  Status SelectSql(const std::vector<Slice>& keys, const std::vector<Slice>* values) override;
-  Status InsertSql(const std::vector<Slice>& keys, const std::vector<Slice>& values) override;
-  Status UpdateSql(const std::vector<Slice>& keys, const std::vector<Slice>& values) override;
+  Status SelectSql(const ReadOptions& options,
+                   const std::map<std::string, Slice>& conditions,
+                   std::vector<std::string>* values) override;
+  Status InsertSql(const WriteOptions& o, const std::vector<Slice>& keys,
+                   const std::vector<Slice>& values) override;
+  Status UpdateSql(const std::vector<Slice>& keys,
+                   const std::vector<Slice>& values) override;
   Status DeleteSql(const std::vector<Slice>& keys) override;
   /**
    * my leveldb end
@@ -117,10 +125,10 @@ class DBImpl : public DB {
   struct IndexDict {
     IndexDict() : last_index_(0), index_array_({}) {}
     void AddIndex(const std::string& name, int index) {
-      index_array_.insert(std::pair<std::string,int>(name, index));
+      index_array_.insert(std::pair<std::string, int>(name, index));
     }
     int last_index_;
-    std::map<std::string,int> index_array_;
+    std::map<std::string, int> index_array_;
   };
 
   Iterator* NewInternalIterator(const ReadOptions&,
@@ -172,6 +180,7 @@ class DBImpl : public DB {
   Status FinishCompactionOutputFile(CompactionState* compact, Iterator* input);
   Status InstallCompactionResults(CompactionState* compact)
       EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+
 
   const Comparator* user_comparator() const {
     return internal_comparator_.user_comparator();
