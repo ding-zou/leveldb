@@ -86,6 +86,29 @@ class LEVELDB_EXPORT DB {
   // May return some other Status on an error.
   virtual Status Get(const ReadOptions& options, const Slice& key,
                      std::string* value) = 0;
+  /**
+   * my leveldb begin
+   * @param rowName
+   * @return
+   */
+  //create index，generate index_id，call this method before put data in db
+
+  enum class IndexType {
+    Primary_Index,Second_Index
+  };
+  //todo 索引映射 字段映射
+  virtual Status CreateIndex(IndexType type, const std::string& rowName) = 0;
+  virtual Status SelectSql(const std::vector<Slice>& keys, const std::vector<Slice>* values) = 0;
+  virtual Status InsertSql(const std::vector<Slice>& keys, const std::vector<Slice>& values) = 0;
+  virtual Status UpdateSql(const std::vector<Slice>& keys, const std::vector<Slice>& values) = 0;
+  virtual Status DeleteSql(const std::vector<Slice>& keys) = 0;
+
+
+  /**
+   * my leveldb end
+   * @param options
+   * @return
+   */
 
   // Return a heap-allocated iterator over the contents of the database.
   // The result of NewIterator() is initially invalid (caller must
@@ -136,7 +159,7 @@ class LEVELDB_EXPORT DB {
 
   // Compact the underlying storage for the key range [*begin,*end].
   // In particular, deleted and overwritten versions are discarded,
-  // and the data is rearranged to reduce the cost of operations
+  // and the data is rearranged to reduce thMemTable::Add(e cost of operations
   // needed to access the data.  This operation should typically only
   // be invoked by users who understand the underlying implementation.
   //

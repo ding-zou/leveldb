@@ -550,6 +550,7 @@ TEST_F(DBTest, EmptyKey) {
     ASSERT_EQ("v1", Get(""));
     ASSERT_LEVELDB_OK(Put("", "v2"));
     ASSERT_EQ("v2", Get(""));
+    DumpSSTableList();
   } while (ChangeOptions());
 }
 

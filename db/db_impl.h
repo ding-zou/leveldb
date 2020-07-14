@@ -42,6 +42,19 @@ class DBImpl : public DB {
   Status Write(const WriteOptions& options, WriteBatch* updates) override;
   Status Get(const ReadOptions& options, const Slice& key,
              std::string* value) override;
+  /**
+   * my leveldb start
+   * @return
+   */
+  Status CreateIndex(IndexType type, const std::string& rowName) override;
+  Status SelectSql(const std::vector<Slice>& keys, const std::vector<Slice>* values) override;
+  Status InsertSql(const std::vector<Slice>& keys, const std::vector<Slice>& values) override;
+  Status UpdateSql(const std::vector<Slice>& keys, const std::vector<Slice>& values) override;
+  Status DeleteSql(const std::vector<Slice>& keys) override;
+  /**
+   * my leveldb end
+   * @return
+   */
   Iterator* NewIterator(const ReadOptions&) override;
   const Snapshot* GetSnapshot() override;
   void ReleaseSnapshot(const Snapshot* snapshot) override;
@@ -99,6 +112,15 @@ class DBImpl : public DB {
     int64_t micros;
     int64_t bytes_read;
     int64_t bytes_written;
+  };
+
+  struct IndexDict {
+    IndexDict() : last_index_(0), index_array_({}) {}
+    void AddIndex(const std::string& name, int index) {
+      index_array_.insert(std::pair<std::string,int>(name, index));
+    }
+    int last_index_;
+    std::map<std::string,int> index_array_;
   };
 
   Iterator* NewInternalIterator(const ReadOptions&,
@@ -203,6 +225,8 @@ class DBImpl : public DB {
   Status bg_error_ GUARDED_BY(mutex_);
 
   CompactionStats stats_[config::kNumLevels] GUARDED_BY(mutex_);
+
+  IndexDict* index_dict_ GUARDED_BY(mutex_);
 };
 
 // Sanitize db options.  The caller should delete result.info_log if

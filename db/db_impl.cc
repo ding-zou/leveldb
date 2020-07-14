@@ -147,7 +147,8 @@ DBImpl::DBImpl(const Options& raw_options, const std::string& dbname)
       background_compaction_scheduled_(false),
       manual_compaction_(nullptr),
       versions_(new VersionSet(dbname_, &options_, table_cache_,
-                               &internal_comparator_)) {}
+                               &internal_comparator_)),
+      index_dict_(new IndexDict()){}
 
 DBImpl::~DBImpl() {
   // Wait for background work to finish.
@@ -169,6 +170,7 @@ DBImpl::~DBImpl() {
   delete log_;
   delete logfile_;
   delete table_cache_;
+  delete index_dict_;
 
   if (owns_info_log_) {
     delete options_.info_log;
@@ -541,6 +543,7 @@ Status DBImpl::WriteLevel0Table(MemTable* mem, VersionEdit* edit,
   return s;
 }
 
+//合并immutable to level0
 void DBImpl::CompactMemTable() {
   mutex_.AssertHeld();
   assert(imm_ != nullptr);
@@ -694,6 +697,7 @@ void DBImpl::BackgroundCall() {
   background_work_finished_signal_.SignalAll();
 }
 
+//TODO 合并逻辑
 void DBImpl::BackgroundCompaction() {
   mutex_.AssertHeld();
 
@@ -1153,7 +1157,41 @@ Status DBImpl::Get(const ReadOptions& options, const Slice& key,
   current->Unref();
   return s;
 }
+/**
+ * my leveldb start easiest way implement
+ * todo
+ * @param type
+ * @param rowName
+ * @return
+ */
+Status DBImpl::CreateIndex(IndexType type, const std::string& rowName) {
+  MutexLock l(&mutex_);
+  if(type == IndexType::Primary_Index) {
+    index_dict_->AddIndex(rowName, index_dict_->last_index_);
+    index_dict_->last_index_ += 1;
+  }
+  return Status::OK();
+}
+Status DBImpl::SelectSql(const std::vector<Slice>& keys, const std::vector<Slice>* values) {
 
+  return Status::OK();
+}
+Status DBImpl::InsertSql(const std::vector<Slice>& keys, const std::vector<Slice>& values) {
+
+  return Status::OK();
+}
+Status DBImpl::UpdateSql(const std::vector<Slice>& keys, const std::vector<Slice>& values) {
+  return Status::OK();
+}
+Status DBImpl::DeleteSql(const std::vector<Slice>& keys) {
+  return Status::OK();
+}
+/**
+ * my leveldb end
+ * @param type
+ * @param rowName
+ * @return
+ */
 Iterator* DBImpl::NewIterator(const ReadOptions& options) {
   SequenceNumber latest_snapshot;
   uint32_t seed;
@@ -1193,14 +1231,18 @@ Status DBImpl::Delete(const WriteOptions& options, const Slice& key) {
 }
 
 Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
+  //writer就理解为单词操作task
   Writer w(&mutex_);
   w.batch = updates;
   w.sync = options.sync;
   w.done = false;
 
   MutexLock l(&mutex_);
+  //入队
   writers_.push_back(&w);
+  //如果没有完成或者前面还有，则等待
   while (!w.done && &w != writers_.front()) {
+    //类似await notify
     w.cv.Wait();
   }
   if (w.done) {
@@ -1212,6 +1254,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
   uint64_t last_sequence = versions_->LastSequence();
   Writer* last_writer = &w;
   if (status.ok() && updates != nullptr) {  // nullptr batch is for compactions
+    //优先写记录 seq
     WriteBatch* write_batch = BuildBatchGroup(&last_writer);
     WriteBatchInternal::SetSequence(write_batch, last_sequence + 1);
     last_sequence += WriteBatchInternal::Count(write_batch);
@@ -1222,6 +1265,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
     // into mem_.
     {
       mutex_.Unlock();
+      //写log
       status = log_->AddRecord(WriteBatchInternal::Contents(write_batch));
       bool sync_error = false;
       if (status.ok() && options.sync) {
@@ -1230,6 +1274,7 @@ Status DBImpl::Write(const WriteOptions& options, WriteBatch* updates) {
           sync_error = true;
         }
       }
+      //写memtable
       if (status.ok()) {
         status = WriteBatchInternal::InsertInto(write_batch, mem_);
       }
@@ -1336,17 +1381,22 @@ Status DBImpl::MakeRoomForWrite(bool force) {
       // this delay hands over some CPU to the compaction thread in
       // case it is sharing the same core as the writer.
       mutex_.Unlock();
+      //达到上限延时1ms
       env_->SleepForMicroseconds(1000);
       allow_delay = false;  // Do not delay a single write more than once
       mutex_.Lock();
     } else if (!force &&
                (mem_->ApproximateMemoryUsage() <= options_.write_buffer_size)) {
       // There is room in current memtable
+      //不需要持久化到文件 内存还可以继续存储
       break;
-    } else if (imm_ != nullptr) {
+    }
+    //有compacted的mmtable
+    else if (imm_ != nullptr) {
       // We have filled up the current memtable, but the previous
       // one is still being compacted, so we wait.
       Log(options_.info_log, "Current memtable full; waiting...\n");
+      //使用特定的convar等待
       background_work_finished_signal_.Wait();
     } else if (versions_->NumLevelFiles(0) >= config::kL0_StopWritesTrigger) {
       // There are too many level-0 files.
@@ -1463,6 +1513,7 @@ void DBImpl::GetApproximateSizes(const Range* range, int n, uint64_t* sizes) {
 // can call if they wish
 Status DB::Put(const WriteOptions& opt, const Slice& key, const Slice& value) {
   WriteBatch batch;
+  //构建batch
   batch.Put(key, value);
   return Write(opt, &batch);
 }
